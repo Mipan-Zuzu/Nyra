@@ -1,0 +1,17 @@
+{
+  "name": "nyra-vtuber-assistant",
+  "version": "1.0.0",
+  "description": "Desktop AI VTuber Assistant with voice, LLM, and VRM character",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron ."
+  },
+  "dependencies": {
+    "@pixiv/three-vrm": "^3.1.0",
+    "dotenv": "^16.4.5",
+    "electron": "^31.0.0",
+    "form-data": "^4.0.0",
+    "node-fetch": "^2.7.0",
+    "three": "^0.166.0"
+  }
+}

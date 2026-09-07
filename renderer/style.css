@@ -1,0 +1,222 @@
+/* style.css — Nyra VTuber Assistant UI */
+
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html, body {
+  width: 550px;
+  height: 650px;
+  overflow: hidden;
+  background: transparent;
+  font-family: 'Segoe UI', sans-serif;
+  font-size: 14px;
+  color: #f0f0f0;
+  user-select: none;
+}
+
+/* ── Drag bar ────────────────────────────────────────────────────────────── */
+
+#drag-bar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 10px;
+  -webkit-app-region: drag;
+  background: transparent;
+  z-index: 10;
+}
+
+#app-title {
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  color: #d9b8ff;
+}
+
+#window-controls {
+  display: flex;
+  gap: 6px;
+  -webkit-app-region: no-drag;
+}
+
+#window-controls button {
+  width: 22px;
+  height: 22px;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: #ccc;
+  cursor: pointer;
+  font-size: 11px;
+  line-height: 1;
+  transition: background 0.15s;
+}
+
+#window-controls button:hover {
+  background: transparent;
+  color: #fff;
+}
+
+/* ── VRM canvas ──────────────────────────────────────────────────────────── */
+
+#vrm-canvas {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 550px;
+  height: 400px;
+  /* Canvas background is transparent — Three.js renderer alpha is true */
+  background: transparent;
+  border-radius: 12px 12px 0 0;
+}
+
+/* ── Status indicator (listening / thinking) ─────────────────────────────── */
+
+#status-indicator {
+  position: absolute;
+  top: 360px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: transparent;
+  border-radius: 20px;
+  padding: 4px 14px;
+  font-size: 13px;
+  color: #f0e0ff;
+  pointer-events: none;
+  transition: opacity 0.2s;
+  z-index: 5;
+}
+
+#status-indicator.hidden {
+  opacity: 0;
+}
+
+/* ── Chat history ────────────────────────────────────────────────────────── */
+
+#chat-history {
+  position: absolute;
+  top: 400px;
+  left: 0;
+  width: 100%;
+  height: 198px;
+  overflow-y: auto;
+  padding: 8px 10px 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  background: transparent;
+}
+
+#chat-history::-webkit-scrollbar {
+  width: 4px;
+}
+#chat-history::-webkit-scrollbar-thumb {
+  background: transparent;
+  border-radius: 2px;
+}
+
+.msg {
+  max-width: 88%;
+  padding: 6px 10px;
+  border-radius: 10px;
+  line-height: 1.45;
+  font-size: 13px;
+  word-break: break-word;
+}
+
+.msg.user {
+  align-self: flex-end;
+  background: transparent;
+  color: #f5ecff;
+  border-bottom-right-radius: 3px;
+}
+
+.msg.assistant {
+  align-self: flex-start;
+  background: transparent;
+  color: #e8d8ff;
+  border-bottom-left-radius: 3px;
+}
+
+/* ── Input row ───────────────────────────────────────────────────────────── */
+
+#input-row {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  width: 100%;
+  height: 52px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 10px;
+  background: transparent;
+}
+
+#text-input {
+  flex: 1;
+  height: 34px;
+  padding: 0 10px;
+  border: 1px solid rgba(160, 100, 255, 0.35);
+  border-radius: 17px;
+  background: transparent;
+  color: #f0e8ff;
+  font-size: 13px;
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+#text-input::placeholder {
+  color: rgba(200, 180, 230, 0.45);
+}
+
+#text-input:focus {
+  border-color: rgba(180, 120, 255, 0.7);
+}
+
+#btn-mic,
+#btn-send {
+  width: 36px;
+  height: 36px;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: rgba(200, 180, 255, 0.6);
+  font-size: 16px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s, transform 0.1s;
+  flex-shrink: 0;
+}
+
+#btn-mic:hover,
+#btn-send:hover {
+  background: transparent;
+  color: #fff;
+}
+
+#btn-mic:active,
+#btn-send:active {
+  transform: scale(0.92);
+}
+
+/* Recording state — mic button pulses red */
+#btn-mic.recording {
+  background: transparent;
+  animation: pulse 0.9s infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(220, 50, 80, 0.6); }
+  50%       { box-shadow: 0 0 0 7px rgba(220, 50, 80, 0); }
+}

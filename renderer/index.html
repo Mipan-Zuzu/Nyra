@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Nyra</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <!-- Drag handle — invisible bar at top for moving the window -->
+  <div id="drag-bar">
+    <span id="app-title">Nyra</span>
+    <div id="window-controls">
+      <button id="btn-minimize" title="Minimize">─</button>
+      <button id="btn-close" title="Close">✕</button>
+    </div>
+  </div>
+
+  <!-- Three.js VRM character canvas -->
+  <canvas id="vrm-canvas"></canvas>
+
+  <!-- Status indicator shown during listen / think states -->
+  <div id="status-indicator" class="hidden">
+    <span id="status-text">...</span>
+  </div>
+
+  <!-- Chat history (scrollable) -->
+  <div id="chat-history"></div>
+
+  <!-- Input row: text field + mic button + send button -->
+  <div id="input-row">
+    <button id="btn-mic" title="Rekam suara">🎤</button>
+    <input
+      id="text-input"
+      type="text"
+      placeholder="Ketik pesan…"
+      autocomplete="off"
+    />
+    <button id="btn-send" title="Kirim">➤</button>
+  </div>
+
+  <!--
+    Three.js + three-vrm loaded from node_modules via relative path.
+    Electron can resolve node_modules relative to the renderer file.
+  -->
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "../node_modules/three/build/three.module.js",
+      "@pixiv/three-vrm": "../node_modules/@pixiv/three-vrm/lib/three-vrm.module.js"
+    }
+  }
+  </script>
+  <script type="module" src="app.js"></script>
+</body>
+</html>
