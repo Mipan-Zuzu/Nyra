@@ -8,6 +8,13 @@ const fetch = require("node-fetch");
 const FormData = require("form-data");
 const fs = require("fs");
 
+function fetchWithTimeout(url, options, timeoutMs) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  return fetch(url, { ...options, signal: controller.signal })
+    .finally(() => clearTimeout(timer));
+}
+
 // ─── Window ────────────────────────────────────────────────────────────────
 
 let win;
@@ -46,7 +53,7 @@ function createWindow() {
   });
 
   // Uncomment to open DevTools during development
-  // win.webContents.openDevTools({ mode: 'detach' });
+win.webContents.openDevTools({ mode: "detach" });
 }
 
 app.whenReady().then(createWindow);
@@ -114,6 +121,7 @@ ipcMain.handle("whisper-transcribe", async (_event, audioBuffer) => {
 // API key stays in main process — never exposed to renderer.
 ipcMain.handle("llm-chat", async (_event, messages) => {
   try {
+    console.log(`[LLM] Request started (${messages.length} messages)`);
     const apiKey = process.env.GROQ_API_KEY;
     if (!apiKey) throw new Error("GROQ_API_KEY not set in .env");
 
@@ -128,7 +136,7 @@ ipcMain.handle("llm-chat", async (_event, messages) => {
         "形式は [emotion:happy] テキスト のようにすること。",
     };
 
-    const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+    const res = await fetchWithTimeout("https://api.groq.com/openai/v1/chat/completions", {
       method: "POST",
       headers: {
         Authorization: `Bearer ${apiKey}`,
@@ -137,12 +145,11 @@ ipcMain.handle("llm-chat", async (_event, messages) => {
       body: JSON.stringify({
         model: "openai/gpt-oss-120b",
         messages: [systemPrompt, ...messages],
-        reasoning_effort: "low", // faster, lower cost
+        reasoning_effort: "low", 
         max_tokens: 200,
       }),
-    });
-
-    // Handle rate limit gracefully — return a fallback character message
+    }, 15000);
+    
     if (res.status === 429) {
       console.warn("[LLM] Rate limited (429)");
       return { ok: true, text: "hmm, aku butuh napas sebentar~", emotion: "neutral" };
@@ -163,10 +170,12 @@ ipcMain.handle("llm-chat", async (_event, messages) => {
     const emotion = emotionMatch ? emotionMatch[1].toLowerCase() : "neutral";
     const text = answer.replace(/^\[emotion:(?:happy|sad|surprised|neutral|angry)\]\s*/i, "").trim();
 
+    console.log(`[LLM] Response received (${emotion})`);
     return { ok: true, text, emotion };
   } catch (err) {
-    console.error("[LLM]", err.message);
-    return { ok: false, error: err.message };
+    const message = err.name === "AbortError" ? "LLM request timeout (15s)" : err.message;
+    console.error("[LLM]", message);
+    return { ok: false, error: message };
   }
 });
 
@@ -181,10 +190,12 @@ ipcMain.handle("tts-synthesize", async (_event, text) => {
   const SPEAKER_ID = 1; // change to your preferred VOICEVOX speaker
 
   try {
+    console.log(`[VOICEVOX] Synthesis started (${text.length} chars)`);
     // Step 1: Generate audio query from text
-    const queryRes = await fetch(
+    const queryRes = await fetchWithTimeout(
       `${VOICEVOX_BASE}/audio_query?text=${encodeURIComponent(text)}&speaker=${SPEAKER_ID}`,
       { method: "POST" },
+      10000,
     );
 
     if (!queryRes.ok) {
@@ -193,13 +204,14 @@ ipcMain.handle("tts-synthesize", async (_event, text) => {
     const audioQuery = await queryRes.json();
 
     // Step 2: Synthesize WAV from audio query
-    const synthRes = await fetch(
+    const synthRes = await fetchWithTimeout(
       `${VOICEVOX_BASE}/synthesis?speaker=${SPEAKER_ID}`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(audioQuery),
       },
+      10000,
     );
 
     if (!synthRes.ok) {
@@ -207,6 +219,7 @@ ipcMain.handle("tts-synthesize", async (_event, text) => {
     }
 
     const wavBuffer = await synthRes.arrayBuffer();
+    console.log("[VOICEVOX] Synthesis completed");
     return { ok: true, audio: wavBuffer };
   } catch (err) {
     // If VOICEVOX isn't running (ECONNREFUSED), log clearly but don't crash
@@ -216,7 +229,8 @@ ipcMain.handle("tts-synthesize", async (_event, text) => {
       );
       return { ok: false, error: "voicevox_offline" };
     }
-    console.error("[VOICEVOX]", err.message);
-    return { ok: false, error: err.message };
+    const message = err.name === "AbortError" ? "VOICEVOX request timeout (10s)" : err.message;
+    console.error("[VOICEVOX]", message);
+    return { ok: false, error: message };
   }
 });

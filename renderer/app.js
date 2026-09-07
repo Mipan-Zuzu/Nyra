@@ -259,23 +259,37 @@ function addMessage(role, text) {
 async function handleUserInput(text) {
   if (!text.trim() || appState === 'thinking' || appState === 'speaking') return;
 
+  console.log('[Pipeline] Sending transcript to LLM');
   addMessage('user', text);
   setState('thinking');
 
-  const llmResult = await window.nyra.chat(
-    conversationHistory.filter((m) => m.role !== 'system')
-  );
+  let llmResult;
+  try {
+    llmResult = await window.nyra.chat(
+      conversationHistory.filter((m) => m.role !== 'system')
+    );
+  } catch (err) {
+    console.error('[Pipeline] LLM IPC failed:', err);
+    setState('listening');
+    return;
+  }
 
   if (!llmResult.ok) {
+    console.error('[Pipeline] LLM failed:', llmResult.error);
     addMessage('assistant', 'eh, ada yang error nih… coba lagi ya~');
-    setState('idle');
+    setState('listening');
     return;
   }
 
   const reply = llmResult.text;
+  console.log('[Pipeline] LLM response received, sending to VOICEVOX');
   addMessage('assistant', reply);
-  await playTTSAndLipsync(reply, llmResult.emotion);
-  setState('idle');
+  try {
+    await playTTSAndLipsync(reply, llmResult.emotion);
+  } catch (err) {
+    console.error('[Pipeline] TTS playback failed:', err);
+  }
+  setState('listening');
 }
 
 // ─── TTS + lipsync ────────────────────────────────────────────────────────────
@@ -303,12 +317,13 @@ async function playTTSAndLipsync(text, emotion = 'neutral') {
   const ttsResult = await window.nyra.synthesize(text);
 
   if (!ttsResult.ok) {
+    console.error('[Pipeline] VOICEVOX failed:', ttsResult.error);
     if (ttsResult.error === 'voicevox_offline')
       console.warn('[TTS] VOICEVOX offline — skipping audio');
     setEmotion(activeEmotion, 0);
     setEmotion('neutral', 1.0);
     activeEmotion = 'neutral';
-    setState('idle');
+    setState('listening');
     return;
   }
 
@@ -348,57 +363,119 @@ async function playTTSAndLipsync(text, emotion = 'neutral') {
   });
 }
 
-// ─── Voice recording (Whisper STT) ───────────────────────────────────────────
+// ─── Always-on voice recording (local VAD + Groq Whisper STT) ────────────────
 
 let mediaRecorder = null;
-let audioChunks   = [];
+let audioChunks = [];
+let micStream = null;
+let micAnalyser = null;
+let micData = null;
+let vadFrame = null;
+let silenceStartedAt = 0;
+let speechStarted = false;
+const VAD_THRESHOLD = 0.045;
+const SILENCE_DURATION_MS = 3500;
 const btnMic = document.getElementById('btn-mic');
 
-btnMic.addEventListener('click', async () => {
-  if (appState === 'thinking' || appState === 'speaking') return;
+function getSupportedMimeType() {
+  const candidates = ['audio/webm;codecs=opus', 'audio/webm', 'audio/ogg;codecs=opus'];
+  return candidates.find((type) => MediaRecorder.isTypeSupported(type)) || '';
+}
 
-  if (mediaRecorder && mediaRecorder.state === 'recording') {
-    mediaRecorder.stop();
-    return;
+function getMicVolume() {
+  micAnalyser.getByteTimeDomainData(micData);
+  let sum = 0;
+  for (const value of micData) {
+    const normalized = (value - 128) / 128;
+    sum += normalized * normalized;
   }
+  return Math.sqrt(sum / micData.length);
+}
 
-  let stream;
-  try {
-    stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-  } catch (err) {
-    console.error('[Mic] Permission denied:', err);
-    return;
-  }
+function beginSpeechCapture() {
+  if (mediaRecorder || appState !== 'listening') return;
 
   audioChunks = [];
-  mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
-
-  mediaRecorder.ondataavailable = (e) => {
-    if (e.data.size > 0) audioChunks.push(e.data);
+  const mimeType = getSupportedMimeType();
+  mediaRecorder = new MediaRecorder(micStream, mimeType ? { mimeType } : undefined);
+  mediaRecorder.ondataavailable = (event) => {
+    if (event.data.size > 0) audioChunks.push(event.data);
   };
+  mediaRecorder.onstop = finishSpeechCapture;
+  mediaRecorder.start(250);
+  speechStarted = true;
+  silenceStartedAt = 0;
+  console.log('[VAD] Speech detected, recording started');
+}
 
-  // Stop → transcribe → pipeline
-  mediaRecorder.onstop = async () => {
-    stream.getTracks().forEach((t) => t.stop());
-    setState('thinking');
+async function finishSpeechCapture() {
+  const recorder = mediaRecorder;
+  mediaRecorder = null;
+  speechStarted = false;
+  silenceStartedAt = 0;
+  if (!recorder || !audioChunks.length) {
+    setState('listening');
+    return;
+  }
 
-    const blob        = new Blob(audioChunks, { type: 'audio/webm' });
-    const arrayBuffer = await blob.arrayBuffer();
-    const sttResult   = await window.nyra.transcribe(arrayBuffer);
+  setState('thinking');
+  const blob = new Blob(audioChunks, { type: recorder.mimeType || 'audio/webm' });
+  audioChunks = [];
+  const arrayBuffer = await blob.arrayBuffer();
+  const sttResult = await window.nyra.transcribe(arrayBuffer);
 
-    if (!sttResult.ok || !sttResult.text) {
-      console.warn('[STT] No transcript');
-      setState('idle');
-      return;
-    }
+  if (!sttResult.ok || !sttResult.text) {
+    console.warn('[STT] No transcript');
+    setState('listening');
+    return;
+  }
 
-    console.log('[STT] Transcript:', sttResult.text);
-    await handleUserInput(sttResult.text);
-  };
-
-  mediaRecorder.start();
+  console.log('[STT] Transcript:', sttResult.text);
   setState('listening');
-});
+  await handleUserInput(sttResult.text);
+}
+
+function monitorVoiceActivity() {
+  if (!micAnalyser) return;
+  const volume = getMicVolume();
+  const canListen = appState === 'listening';
+
+  if (canListen && volume >= VAD_THRESHOLD) {
+    if (!speechStarted) beginSpeechCapture();
+    silenceStartedAt = 0;
+  } else if (speechStarted && volume < VAD_THRESHOLD) {
+    if (!silenceStartedAt) silenceStartedAt = performance.now();
+    if (performance.now() - silenceStartedAt >= SILENCE_DURATION_MS && mediaRecorder?.state === 'recording') {
+      mediaRecorder.stop();
+    }
+  } else if (!canListen) {
+    silenceStartedAt = 0;
+  }
+
+  vadFrame = requestAnimationFrame(monitorVoiceActivity);
+}
+
+async function startAlwaysListening() {
+  try {
+    micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    const ctx = getAudioContext();
+    await ctx.resume();
+    const micSource = ctx.createMediaStreamSource(micStream);
+    micAnalyser = ctx.createAnalyser();
+    micAnalyser.fftSize = 512;
+    micData = new Uint8Array(micAnalyser.fftSize);
+    micSource.connect(micAnalyser);
+    btnMic.title = 'Mendengarkan otomatis';
+    setState('listening');
+    monitorVoiceActivity();
+    console.log('[VAD] Always-listening microphone ready');
+  } catch (err) {
+    console.error('[Mic] Permission denied or unavailable:', err);
+    btnMic.title = 'Mikrofon tidak tersedia';
+  }
+}
+
+startAlwaysListening();
 
 // ─── Text input ───────────────────────────────────────────────────────────────
 
