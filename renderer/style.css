@@ -132,6 +132,11 @@ html, body {
   word-break: break-word;
 }
 
+.msg-main,
+.msg-translation {
+  white-space: pre-line;
+}
+
 .msg.user {
   align-self: flex-end;
   background: transparent;
@@ -144,6 +149,16 @@ html, body {
   background: transparent;
   color: #e8d8ff;
   border-bottom-left-radius: 3px;
+}
+
+.msg-translation {
+  margin-top: 4px;
+  padding-top: 4px;
+  border-top: 1px solid rgba(200, 170, 255, 0.25);
+  font-size: 11px;
+  line-height: 1.35;
+  color: #d9c8ff;
+  opacity: 0.9;
 }
 
 /* ── Input row ───────────────────────────────────────────────────────────── */

@@ -106,35 +106,38 @@ scheduleBlink();
 
 const GESTURE_POSES = {
   idle: {
-    // Nilai dari user: ARM_DOWN_Z=-1.1, ARM_FRONT_X=0.15, FOREARM_BEND=-0.3
-    leftArm:      { x: 0.15, y: 0, z: -1.1 },
-    rightArm:     { x: 0.15, y: 0, z:  1.1 },
-    leftLowerArm: { x: 0,    y: 0, z: -0.3 },
-    rightLowerArm:{ x: 0,    y: 0, z:  0.3 },
+    leftArm:       { x: 0.15, y: 0,     z: -1.1 },
+    rightArm:      { x: 0.15, y: 0,     z:  1.1 },
+    leftLowerArm:  { x: 0,    y: 0,     z: -0.3 },
+    rightLowerArm: { x: 0,    y: 0,     z:  0.3 },
   },
+
   handsOnHip: {
-    leftArm: { x: 0.3, y: 0.2, z: 0.9 },
-    rightArm: { x: 0.3, y: -0.2, z: -0.9 },
-    leftLowerArm: { x: 0, y: 0.5, z: 1.2 },
-    rightLowerArm: { x: 0, y: -0.5, z: -1.2 },
+    leftArm:       { x: 0.35, y: 0.15,  z: -0.75 },
+    rightArm:      { x: 0.32, y: -0.18, z:  0.78 }, // asimetris sedikit, orang jarang persis simetris
+    leftLowerArm:  { x: 0.1,  y: 0.35,  z: -1.05 },
+    rightLowerArm: { x: 0.08, y: -0.4,  z:  1.1 },
   },
+
   touchHair: {
-    leftArm: { x: 0.12, y: 0, z: 0.9 },
-    rightArm: { x: 1.1, y: -0.3, z: -0.5 },
-    leftLowerArm: { x: 0, y: 0, z: 0.2 },
-    rightLowerArm: { x: 0, y: -0.7, z: -1.4 },
+    leftArm:       { x: 0.12, y: 0,     z: -1.0 }, // lengan idle tetap turun, bukan diam kaku di 0.9
+    rightArm:      { x: 0.95, y: -0.25, z:  0.55 }, // dikurangi dari 1.1 → siku tidak "patah"
+    leftLowerArm:  { x: 0,    y: 0.05,  z: -0.35 },
+    rightLowerArm: { x: 0.15, y: -0.55, z:  1.25 },
   },
+
   scratchHead: {
-    leftArm: { x: 0.12, y: 0, z: 0.9 },
-    rightArm: { x: 1.3, y: -0.35, z: -0.4 },
-    leftLowerArm: { x: 0, y: 0, z: 0.2 },
-    rightLowerArm: { x: 0.2, y: -0.8, z: -1.5 },
+    leftArm:       { x: 0.12, y: 0,     z: -1.0 },
+    rightArm:      { x: 1.05, y: -0.3,  z:  0.45 },
+    leftLowerArm:  { x: 0,    y: 0.05,  z: -0.35 },
+    rightLowerArm: { x: 0.35, y: -0.6,  z:  1.35 }, // tekukan siku lebih besar dari bahu, bukan sebaliknya
   },
+
   explaining: {
-    leftArm: { x: 0.5, y: 0.25, z: 0.7 },
-    rightArm: { x: 0.5, y: -0.25, z: -0.7 },
-    leftLowerArm: { x: 0, y: 0.2, z: 0.55 },
-    rightLowerArm: { x: 0, y: -0.2, z: -0.55 },
+    leftArm:       { x: 0.45, y: 0.2,   z: -0.6 },
+    rightArm:      { x: 0.5,  y: -0.22, z:  0.65 },
+    leftLowerArm:  { x: 0.05, y: 0.15,  z: -0.45 },
+    rightLowerArm: { x: 0,    y: -0.18, z:  0.5 },
   },
 };
 
@@ -242,14 +245,42 @@ function setState(state) {
 const MAX_HISTORY = 12;
 const conversationHistory = [];
 
-function addMessage(role, text) {
+function parseTranslation(text) {
+  if (!text || typeof text !== 'string') return { mainText: '', translation: null };
+
+  const match = text.match(/^(.*?)(?:\r?\n\s*Terjemahan\s*:\s*)(.+)$/is);
+  if (!match) {
+    return { mainText: text.trim(), translation: null };
+  }
+
+  const mainText = (match[1] || '').trim();
+  const translation = (match[2] || '').trim();
+  return {
+    mainText: mainText || text.trim(),
+    translation: translation || null,
+  };
+}
+
+function addMessage(role, text, translation = null) {
   conversationHistory.push({ role, content: text });
   if (conversationHistory.length > MAX_HISTORY) conversationHistory.shift();
 
   const history = document.getElementById('chat-history');
   const bubble  = document.createElement('div');
   bubble.className = `msg ${role}`;
-  bubble.textContent = text;
+
+  const mainLine = document.createElement('div');
+  mainLine.className = 'msg-main';
+  mainLine.textContent = text;
+  bubble.appendChild(mainLine);
+
+  if (translation) {
+    const translationLine = document.createElement('div');
+    translationLine.className = 'msg-translation';
+    translationLine.textContent = `Terjemahan: ${translation}`;
+    bubble.appendChild(translationLine);
+  }
+
   history.appendChild(bubble);
   history.scrollTop = history.scrollHeight;
 }
@@ -281,9 +312,10 @@ async function handleUserInput(text) {
     return;
   }
 
-  const reply = llmResult.text;
+  const parsedReply = parseTranslation(llmResult.text);
+  const reply = parsedReply.mainText;
   console.log('[Pipeline] LLM response received, sending to VOICEVOX');
-  addMessage('assistant', reply);
+  addMessage('assistant', reply, parsedReply.translation);
   try {
     await playTTSAndLipsync(reply, llmResult.emotion);
   } catch (err) {
@@ -475,7 +507,7 @@ async function startAlwaysListening() {
   }
 }
 
-startAlwaysListening();
+  startAlwaysListening();
 
 // ─── Text input ───────────────────────────────────────────────────────────────
 
