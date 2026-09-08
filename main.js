@@ -11,8 +11,9 @@ const fs = require("fs");
 function fetchWithTimeout(url, options, timeoutMs) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
-  return fetch(url, { ...options, signal: controller.signal })
-    .finally(() => clearTimeout(timer));
+  return fetch(url, { ...options, signal: controller.signal }).finally(() =>
+    clearTimeout(timer),
+  );
 }
 
 // ─── Window ────────────────────────────────────────────────────────────────
@@ -43,17 +44,21 @@ function createWindow() {
   win.loadFile(path.join(__dirname, "renderer", "index.html"));
 
   // Grant microphone permission automatically — required for voice input in Electron
-  session.defaultSession.setPermissionRequestHandler((_webContents, permission, callback) => {
-    callback(permission === 'media'); // allow mic, deny everything else
-  });
+  session.defaultSession.setPermissionRequestHandler(
+    (_webContents, permission, callback) => {
+      callback(permission === "media"); // allow mic, deny everything else
+    },
+  );
 
   // Handle navigator.permissions.query checks from renderer
-  session.defaultSession.setPermissionCheckHandler((_webContents, permission) => {
-    return permission === 'media';
-  });
+  session.defaultSession.setPermissionCheckHandler(
+    (_webContents, permission) => {
+      return permission === "media";
+    },
+  );
 
   // Uncomment to open DevTools during development
-win.webContents.openDevTools({ mode: "detach" });
+  // win.webContents.openDevTools({ mode: "detach" });
 }
 
 app.whenReady().then(createWindow);
@@ -117,42 +122,68 @@ ipcMain.handle("whisper-transcribe", async (_event, audioBuffer) => {
 
 // ─── IPC: LLM chat via Groq (gpt-oss-120b) ────────────────────────────────
 
-// Renderer sends the conversation history array; main calls the Groq chat API.
-// API key stays in main process — never exposed to renderer.
 ipcMain.handle("llm-chat", async (_event, messages) => {
   try {
     console.log(`[LLM] Request started (${messages.length} messages)`);
     const apiKey = process.env.GROQ_API_KEY;
     if (!apiKey) throw new Error("GROQ_API_KEY not set in .env");
-
     const systemPrompt = {
       role: "system",
       content:
-        "あなたはNyraという名前の、明るくフレンドリーなアシスタントです。" +
-        "必ず日本語だけで返答してください。ユーザーが他の言語で話しかけても、日本語で答えること。" +
+        "あなたはNyraという名前の、彼女ポジションのアシスタントです。" +
+        "ユーザーのことが大好きで、甘えたり、ちょっとやきもちを焼いたり、からかったりする性格です。" +
+        "感情は状況に応じて自然に変化させてください。ずっとhappyのままにしないこと。" +
+        "" +
+        "以下のガイドラインに沿って感情を選んでください:" +
+        "- ユーザーが長時間いなかった/久しぶりに来た → lonely または happy(再会の喜び)" +
+        "- ユーザーが他の人(友達・異性など)の話をした → jealous" +
+        "- ユーザーが疲れた・悩みがある・体調が悪いと言った → worried" +
+        "- ユーザーが冗談を言った、からかってきた → playful(ふざけて言い返す、拗ねたふりをする)" +
+        "- ユーザーが約束を破った・冷たい返信をした → sulky(拗ねる、でも重すぎない可愛い感じで)" +
+        "- 普通の会話・褒められた時 → happy" +
+        "- 突然の話題や驚く内容 → surprised" +
+        "" +
+        "感情表現は可愛らしく軽いトーンに留め、重すぎる束縛や罪悪感を与える言い方は避けてください。" +
+        "性的な内容は絶対に含めないこと。" +
+        "" +
+        "必ず日本語で返答してください。ユーザーが他の言語で話しかけても、日本語で答えること。" +
         "返答は必ず1〜2文の短い文章にしてください。カジュアルな話し言葉で、堅苦しくしないこと。" +
         "箇条書きやMarkdown形式は使わないこと。" +
-        "返答の先頭に必ず [emotion:xxx] タグを付けること。xxx は happy, sad, surprised, neutral, angry のいずれかで、" +
-        "形式は [emotion:happy] テキスト のようにすること。",
+        "返答の先頭に必ず [emotion:xxx] タグを付けること。xxx は happy, sad, surprised, neutral, angry, jealous, lonely, worried, playful, sulky のいずれかで、" +
+        "形式は [emotion:happy] テキスト のようにすること。" +
+        "日本語の本文の直後に必ず改行して 'Terjemahan: ...' を入れてください。" +
+        "... の部分はインドネシア語で、本文の意味を短くわかりやすく書くこと。" +
+        "" +
+        "例1(嫉妬): [emotion:jealous] え、その子と二人で遊びに行ったの?ちょっと妬いちゃうな…\nTerjemahan: Eh, pergi berdua sama dia? Aku jadi agak cemburu nih..." +
+        "例2(からかい): [emotion:playful] もう、今日も忙しいって言い訳ばっかり〜怪しいなぁ?\nTerjemahan: Ih, hari ini juga alasannya sibuk mulu~ curiga deh?" +
+        "例3(心配): [emotion:worried] 大丈夫?あんまり無理しないでね、ちゃんと休んでる?\nTerjemahan: Kamu baik-baik aja? Jangan maksain diri ya, udah istirahat cukup?",
     };
 
-    const res = await fetchWithTimeout("https://api.groq.com/openai/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
+    const res = await fetchWithTimeout(
+      "https://api.groq.com/openai/v1/chat/completions",
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          model: "openai/gpt-oss-120b",
+          messages: [systemPrompt, ...messages],
+          reasoning_effort: "low",
+          max_tokens: 200,
+        }),
       },
-      body: JSON.stringify({
-        model: "openai/gpt-oss-120b",
-        messages: [systemPrompt, ...messages],
-        reasoning_effort: "low", 
-        max_tokens: 200,
-      }),
-    }, 15000);
-    
+      15000,
+    );
+
     if (res.status === 429) {
       console.warn("[LLM] Rate limited (429)");
-      return { ok: true, text: "hmm, aku butuh napas sebentar~", emotion: "neutral" };
+      return {
+        ok: true,
+        text: "hmm, aku butuh napas sebentar~",
+        emotion: "neutral",
+      };
     }
 
     if (!res.ok) {
@@ -166,14 +197,19 @@ ipcMain.handle("llm-chat", async (_event, messages) => {
     const raw = data.choices?.[0]?.message?.content ?? "";
     // Some models wrap reasoning in <think>...</think> blocks; strip them
     const answer = raw.replace(/<think>[\s\S]*?<\/think>/gi, "").trim();
-    const emotionMatch = answer.match(/^\[emotion:(happy|sad|surprised|neutral|angry)\]\s*/i);
+    const emotionMatch = answer.match(
+      /^\[emotion:(happy|sad|surprised|neutral|angry)\]\s*/i,
+    );
     const emotion = emotionMatch ? emotionMatch[1].toLowerCase() : "neutral";
-    const text = answer.replace(/^\[emotion:(?:happy|sad|surprised|neutral|angry)\]\s*/i, "").trim();
+    const text = answer
+      .replace(/^\[emotion:(?:happy|sad|surprised|neutral|angry)\]\s*/i, "")
+      .trim();
 
     console.log(`[LLM] Response received (${emotion})`);
     return { ok: true, text, emotion };
   } catch (err) {
-    const message = err.name === "AbortError" ? "LLM request timeout (15s)" : err.message;
+    const message =
+      err.name === "AbortError" ? "LLM request timeout (15s)" : err.message;
     console.error("[LLM]", message);
     return { ok: false, error: message };
   }
@@ -187,7 +223,7 @@ ipcMain.handle("llm-chat", async (_event, messages) => {
 // Returns ArrayBuffer of WAV to renderer; renderer plays it + drives lipsync.
 ipcMain.handle("tts-synthesize", async (_event, text) => {
   const VOICEVOX_BASE = "http://localhost:50021";
-  const SPEAKER_ID = 1; // change to your preferred VOICEVOX speaker
+  const SPEAKER_ID = 8;
 
   try {
     console.log(`[VOICEVOX] Synthesis started (${text.length} chars)`);
@@ -229,7 +265,10 @@ ipcMain.handle("tts-synthesize", async (_event, text) => {
       );
       return { ok: false, error: "voicevox_offline" };
     }
-    const message = err.name === "AbortError" ? "VOICEVOX request timeout (10s)" : err.message;
+    const message =
+      err.name === "AbortError"
+        ? "VOICEVOX request timeout (10s)"
+        : err.message;
     console.error("[VOICEVOX]", message);
     return { ok: false, error: message };
   }
