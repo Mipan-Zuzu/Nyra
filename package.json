@@ -1,5 +1,5 @@
 {
-  "name": "nyra-vtuber-assistant",
+  "name": "Nyra",
   "version": "1.0.0",
   "description": "Desktop AI VTuber Assistant with voice, LLM, and VRM character",
   "main": "main.js",

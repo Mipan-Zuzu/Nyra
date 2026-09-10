@@ -7,6 +7,7 @@ const path = require("path");
 const fetch = require("node-fetch");
 const FormData = require("form-data");
 const fs = require("fs");
+const { spawn } = require("child_process");
 
 function fetchWithTimeout(url, options, timeoutMs) {
   const controller = new AbortController();
@@ -58,7 +59,7 @@ function createWindow() {
   );
 
   // Uncomment to open DevTools during development
-  // win.webContents.openDevTools({ mode: "detach" });
+  win.webContents.openDevTools({ mode: "detach" });
 }
 
 app.whenReady().then(createWindow);
@@ -77,22 +78,60 @@ ipcMain.on("window-drag", (_event, { deltaX, deltaY }) => {
 ipcMain.on("window-close", () => win.close());
 ipcMain.on("window-minimize", () => win.minimize());
 
+// ─── IPC: Open whitelisted desktop apps ────────────────────────────────────
+
+const APP_COMMANDS = {
+  calculator: { command: "calc.exe", args: [] },
+  kalkulator: { command: "calc.exe", args: [] },
+  notepad: { command: "notepad.exe", args: [] },
+  paint: { command: "mspaint.exe", args: [] },
+  explorer: { command: "explorer.exe", args: [] },
+  "file explorer": { command: "explorer.exe", args: [] },
+  chrome: { command: "chrome.exe", args: [] },
+  "google chrome": { command: "chrome.exe", args: [] },
+  edge: { command: "msedge.exe", args: [] },
+  vscode: { command: "code.cmd", args: [] },
+  "visual studio code": { command: "code.cmd", args: [] },
+  discord: { command: "Discord.exe", args: [] },
+  spotify: { command: "Spotify.exe", args: [] },
+};
+
+ipcMain.handle("open-app", async (_event, appName) => {
+  const key = typeof appName === "string" ? appName.trim().toLowerCase() : "";
+  const appCommand = APP_COMMANDS[key];
+  if (!appCommand) return { ok: false, error: "unsupported_app" };
+
+  try {
+    const child = spawn(appCommand.command, appCommand.args, {
+      detached: true,
+      stdio: "ignore",
+      windowsHide: true,
+      shell: appCommand.command.endsWith(".cmd"),
+    });
+    child.unref();
+    console.log(`[App] Opened ${key}`);
+    return { ok: true };
+  } catch (err) {
+    console.error(`[App] Failed to open ${key}:`, err.message);
+    return { ok: false, error: "launch_failed" };
+  }
+});
+
 // ─── IPC: Speech-to-Text via Groq Whisper ──────────────────────────────────
 
 // Renderer sends raw audio ArrayBuffer; main uploads to Groq Whisper API.
 ipcMain.handle("whisper-transcribe", async (_event, audioBuffer) => {
   try {
-    const apiKey = process.env.GROQ_API_KEY;
-    if (!apiKey) throw new Error("GROQ_API_KEY not set in .env");
+    const apiKey = process.env.AI_API_KEY;
+    if (!apiKey) throw new Error("AI_API_KEY not set in .env");
 
-    // Pass Buffer directly into FormData — no temp file → no disk I/O latency
     const form = new FormData();
     form.append("file", Buffer.from(audioBuffer), {
       filename: "audio.webm",
       contentType: "audio/webm",
     });
-    form.append("model", "whisper-large-v3"); // higher accuracy, still fast on Groq
-    form.append("language", "id"); // Indonesian
+    form.append("model", "whisper-large-v3");
+    form.append("language", "id");
     form.append("response_format", "json");
 
     const res = await fetch(
@@ -125,8 +164,9 @@ ipcMain.handle("whisper-transcribe", async (_event, audioBuffer) => {
 ipcMain.handle("llm-chat", async (_event, messages) => {
   try {
     console.log(`[LLM] Request started (${messages.length} messages)`);
-    const apiKey = process.env.GROQ_API_KEY;
-    if (!apiKey) throw new Error("GROQ_API_KEY not set in .env");
+    const apiKey = process.env.AI_API_KEY;
+    if (!apiKey) throw new Error("AI_API_KEY not set in .env");
+
     const systemPrompt = {
       role: "system",
       content:
@@ -149,6 +189,7 @@ ipcMain.handle("llm-chat", async (_event, messages) => {
         "必ず日本語で返答してください。ユーザーが他の言語で話しかけても、日本語で答えること。" +
         "返答は必ず1〜2文の短い文章にしてください。カジュアルな話し言葉で、堅苦しくしないこと。" +
         "箇条書きやMarkdown形式は使わないこと。" +
+        "句読点は記号で自然に使い、\"tanda seru\"、\"tanda tanya\"、\"koma\"、\"titik\" などの句読点名を本文に書かないこと。" +
         "返答の先頭に必ず [emotion:xxx] タグを付けること。xxx は happy, sad, surprised, neutral, angry, jealous, lonely, worried, playful, sulky のいずれかで、" +
         "形式は [emotion:happy] テキスト のようにすること。" +
         "日本語の本文の直後に必ず改行して 'Terjemahan: ...' を入れてください。" +
@@ -159,7 +200,7 @@ ipcMain.handle("llm-chat", async (_event, messages) => {
         "例3(心配): [emotion:worried] 大丈夫?あんまり無理しないでね、ちゃんと休んでる?\nTerjemahan: Kamu baik-baik aja? Jangan maksain diri ya, udah istirahat cukup?",
     };
 
-    const res = await fetchWithTimeout(
+    const res = await fetch(
       "https://api.groq.com/openai/v1/chat/completions",
       {
         method: "POST",
@@ -174,7 +215,6 @@ ipcMain.handle("llm-chat", async (_event, messages) => {
           max_tokens: 200,
         }),
       },
-      15000,
     );
 
     if (res.status === 429) {
@@ -192,17 +232,17 @@ ipcMain.handle("llm-chat", async (_event, messages) => {
     }
 
     const data = await res.json();
-
-    // Extract only the final answer — skip any reasoning/analysis content
     const raw = data.choices?.[0]?.message?.content ?? "";
-    // Some models wrap reasoning in <think>...</think> blocks; strip them
     const answer = raw.replace(/<think>[\s\S]*?<\/think>/gi, "").trim();
     const emotionMatch = answer.match(
-      /^\[emotion:(happy|sad|surprised|neutral|angry)\]\s*/i,
+      /^\[emotion:(happy|sad|surprised|neutral|angry|jealous|lonely|worried|playful|sulky)\]\s*/i,
     );
     const emotion = emotionMatch ? emotionMatch[1].toLowerCase() : "neutral";
     const text = answer
-      .replace(/^\[emotion:(?:happy|sad|surprised|neutral|angry)\]\s*/i, "")
+      .replace(
+        /^\[emotion:(?:happy|sad|surprised|neutral|angry|jealous|lonely|worried|playful|sulky)\]\s*/i,
+        "",
+      )
       .trim();
 
     console.log(`[LLM] Response received (${emotion})`);
@@ -217,19 +257,34 @@ ipcMain.handle("llm-chat", async (_event, messages) => {
 
 // ─── IPC: Text-to-Speech via VOICEVOX ──────────────────────────────────────
 
+function normalizeVoiceText(text) {
+  return String(text ?? "")
+    .replace(/\btanda\s+seru\b/gi, "!")
+    .replace(/\btanda\s+tanya\b/gi, "?")
+    .replace(/\bkoma\b/gi, ",")
+    .replace(/\btitik\b/gi, ".")
+    .replace(/[!！]+/g, "!")
+    .replace(/[?？]+/g, "?")
+    .replace(/[.。]+/g, ".")
+    .replace(/[,，]+/g, ",")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+}
+
 // Two-step VOICEVOX synthesis:
 //   1. POST /audio_query  → get query JSON
 //   2. POST /synthesis    → get WAV audio buffer
 // Returns ArrayBuffer of WAV to renderer; renderer plays it + drives lipsync.
 ipcMain.handle("tts-synthesize", async (_event, text) => {
   const VOICEVOX_BASE = "http://localhost:50021";
-  const SPEAKER_ID = 8;
+  const SPEAKER_ID = 6;
+  const voiceText = normalizeVoiceText(text);
 
   try {
-    console.log(`[VOICEVOX] Synthesis started (${text.length} chars)`);
+    console.log(`[VOICEVOX] Synthesis started (${voiceText.length} chars)`);
     // Step 1: Generate audio query from text
     const queryRes = await fetchWithTimeout(
-      `${VOICEVOX_BASE}/audio_query?text=${encodeURIComponent(text)}&speaker=${SPEAKER_ID}`,
+      `${VOICEVOX_BASE}/audio_query?text=${encodeURIComponent(voiceText)}&speaker=${SPEAKER_ID}`,
       { method: "POST" },
       10000,
     );

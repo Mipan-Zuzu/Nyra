@@ -220,7 +220,7 @@ function setState(state) {
     case 'listening':
       indicator.classList.remove('hidden');
       statusText.textContent = '🎙 mendengarkan…';
-      btnMic.classList.add('recording');
+      btnMic.classList.toggle('recording', autoListeningEnabled);
       break;
     case 'thinking':
       indicator.classList.remove('hidden');
@@ -285,10 +285,28 @@ function addMessage(role, text, translation = null) {
   history.scrollTop = history.scrollHeight;
 }
 
+function getOpenAppCommand(text) {
+  const match = text.trim().match(/^(?:(?:tolong\s+)?nyra[\s,]*)?(?:tolong\s+)?buka(?:kan)?\s+(.+?)\s*$/i);
+  return match?.[1]?.trim().replace(/^(?:aplikasi|app)\s+/i, '') || null;
+}
+
 // ─── Full pipeline: text → LLM → TTS → lipsync ───────────────────────────────
 
 async function handleUserInput(text) {
   if (!text.trim() || appState === 'thinking' || appState === 'speaking') return;
+
+  const requestedApp = getOpenAppCommand(text);
+  if (requestedApp) {
+    addMessage('user', text);
+    setState('thinking');
+    const result = await window.nyra.openApp(requestedApp);
+    const response = result.ok
+      ? `Oke, ${requestedApp} sudah dibuka.`
+      : `Maaf, aku belum bisa membuka ${requestedApp}.`;
+    addMessage('assistant', response);
+    setState('listening');
+    return;
+  }
 
   console.log('[Pipeline] Sending transcript to LLM');
   addMessage('user', text);
@@ -403,8 +421,10 @@ let micStream = null;
 let micAnalyser = null;
 let micData = null;
 let vadFrame = null;
+let micSource = null;
 let silenceStartedAt = 0;
 let speechStarted = false;
+let autoListeningEnabled = false;
 const VAD_THRESHOLD = 0.045;
 const SILENCE_DURATION_MS = 3500;
 const btnMic = document.getElementById('btn-mic');
@@ -468,7 +488,7 @@ async function finishSpeechCapture() {
 }
 
 function monitorVoiceActivity() {
-  if (!micAnalyser) return;
+  if (!autoListeningEnabled || !micAnalyser) return;
   const volume = getMicVolume();
   const canListen = appState === 'listening';
 
@@ -487,12 +507,39 @@ function monitorVoiceActivity() {
   vadFrame = requestAnimationFrame(monitorVoiceActivity);
 }
 
+function stopAlwaysListening() {
+  autoListeningEnabled = false;
+  if (vadFrame) {
+    cancelAnimationFrame(vadFrame);
+    vadFrame = null;
+  }
+
+  if (mediaRecorder) {
+    mediaRecorder.onstop = null;
+    if (mediaRecorder.state !== 'inactive') mediaRecorder.stop();
+    mediaRecorder = null;
+  }
+  audioChunks = [];
+  speechStarted = false;
+  silenceStartedAt = 0;
+  micSource?.disconnect();
+  micSource = null;
+  micAnalyser = null;
+  micData = null;
+  micStream?.getTracks().forEach((track) => track.stop());
+  micStream = null;
+  btnMic.classList.remove('recording');
+  btnMic.title = 'Aktifkan mendengar otomatis';
+  if (appState === 'listening') setState('idle');
+  console.log('[VAD] Always-listening microphone stopped');
+}
+
 async function startAlwaysListening() {
   try {
     micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
     const ctx = getAudioContext();
     await ctx.resume();
-    const micSource = ctx.createMediaStreamSource(micStream);
+    micSource = ctx.createMediaStreamSource(micStream);
     micAnalyser = ctx.createAnalyser();
     micAnalyser.fftSize = 512;
     micData = new Uint8Array(micAnalyser.fftSize);
@@ -503,11 +550,24 @@ async function startAlwaysListening() {
     console.log('[VAD] Always-listening microphone ready');
   } catch (err) {
     console.error('[Mic] Permission denied or unavailable:', err);
+    autoListeningEnabled = false;
     btnMic.title = 'Mikrofon tidak tersedia';
   }
 }
 
-  startAlwaysListening();
+btnMic.addEventListener('click', async () => {
+  if (autoListeningEnabled) {
+    stopAlwaysListening();
+    return;
+  }
+
+  autoListeningEnabled = true;
+  btnMic.title = 'Mengaktifkan mikrofon...';
+  await startAlwaysListening();
+});
+
+autoListeningEnabled = true;
+startAlwaysListening();
 
 // ─── Text input ───────────────────────────────────────────────────────────────
 
