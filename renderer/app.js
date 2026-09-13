@@ -87,7 +87,7 @@ loader.load(
 // ─── Idle animation: eye blinking ────────────────────────────────────────────
 
 function scheduleBlink() {
-  const delay = 3000 + Math.random() * 3000; // 3–6 s
+  const delay = 3000 + Math.random() * 1500; // 3–6 s
   setTimeout(() => { doBlink(); scheduleBlink(); }, delay);
 }
 
@@ -97,7 +97,7 @@ function doBlink() {
   exp.setValue('blink', 1);
   setTimeout(() => {
     setTimeout(() => exp.setValue('blink', 0), 60);
-  }, 80);
+  }, 60);
 }
 
 scheduleBlink();

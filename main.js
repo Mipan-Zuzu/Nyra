@@ -277,7 +277,7 @@ function normalizeVoiceText(text) {
 // Returns ArrayBuffer of WAV to renderer; renderer plays it + drives lipsync.
 ipcMain.handle("tts-synthesize", async (_event, text) => {
   const VOICEVOX_BASE = "http://localhost:50021";
-  const SPEAKER_ID = 6;
+  const SPEAKER_ID = 3;
   const voiceText = normalizeVoiceText(text);
 
   try {
