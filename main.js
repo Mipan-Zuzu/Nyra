@@ -277,6 +277,7 @@ function normalizeVoiceText(text) {
 // Returns ArrayBuffer of WAV to renderer; renderer plays it + drives lipsync.
 ipcMain.handle("tts-synthesize", async (_event, text) => {
   const VOICEVOX_BASE = "http://localhost:50021";
+  // BISA DI GANTI SESUAI YANG KALIAN MAU DI VOICEFOX SUDAH ADA ID YANG DI SEDIAKAN SARAN GUNAKAN ID 18 19 3 13 ATAU 48 itu suara terbaik menurut atmin
   const SPEAKER_ID = 3;
   const voiceText = normalizeVoiceText(text);
 
