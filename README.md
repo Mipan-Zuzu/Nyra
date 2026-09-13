@@ -18,6 +18,8 @@
   <img src="asset/Nyravid.gif" alt="Nyra Demo" width="600" />
 </p>
 
+**Bahasa Indonesia** | [English](readme-english.md)
+
 </div>
 
 ---
