@@ -162,6 +162,22 @@ html, body {
   opacity: 0.9;
 }
 
+/* Live progress bubble (right-aligned) shown while Nyra is working */
+.msg.progress {
+  align-self: flex-end;
+  background: rgba(160, 110, 255, 0.14);
+  color: #cbb4ff;
+  font-size: 11px;
+  border-radius: 10px;
+  border-bottom-right-radius: 3px;
+  animation: progress-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes progress-pulse {
+  0%, 100% { opacity: 0.55; }
+  50%      { opacity: 1; }
+}
+
 /* ── Input row ───────────────────────────────────────────────────────────── */
 
 #input-row {
@@ -188,6 +204,74 @@ html, body {
   font-size: 13px;
   outline: none;
   transition: border-color 0.15s;
+}
+
+/* ── Thinking-effort picker (kiri dari text input) ───────────────────────── */
+
+#thinking-picker {
+  position: relative;
+  flex-shrink: 0;
+}
+
+#btn-thinking {
+  height: 26px;
+  min-width: 44px;
+  padding: 0 8px;
+  border: 1px solid rgba(160, 100, 255, 0.35);
+  border-radius: 13px;
+  background: transparent;
+  color: rgba(210, 185, 255, 0.8);
+  font-size: 11px;
+  font-family: inherit;
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s;
+}
+
+#btn-thinking:hover {
+  border-color: rgba(180, 120, 255, 0.7);
+  color: #fff;
+}
+
+#thinking-menu {
+  position: absolute;
+  bottom: 32px;
+  left: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 4px;
+  background: rgba(30, 15, 55, 0.95);
+  border: 1px solid rgba(160, 100, 255, 0.4);
+  border-radius: 10px;
+  z-index: 20;
+}
+
+#thinking-menu.hidden {
+  display: none;
+}
+
+.thinking-option {
+  border: none;
+  background: transparent;
+  color: #d9c8ff;
+  font-size: 11px;
+  font-family: inherit;
+  padding: 5px 14px;
+  border-radius: 7px;
+  cursor: pointer;
+  text-align: left;
+  white-space: nowrap;
+  transition: background 0.1s, color 0.1s;
+}
+
+.thinking-option:hover {
+  background: rgba(160, 110, 255, 0.25);
+  color: #fff;
+}
+
+.thinking-option.active {
+  background: rgba(160, 110, 255, 0.4);
+  color: #fff;
 }
 
 #text-input::placeholder {

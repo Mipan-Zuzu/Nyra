@@ -8,7 +8,7 @@ contextBridge.exposeInMainWorld('nyra', {
   transcribe: (audioBuffer) =>
     ipcRenderer.invoke('whisper-transcribe', audioBuffer),
 
-  chat: (messages) => ipcRenderer.invoke('llm-chat', messages),
+  chat: (messages, effort) => ipcRenderer.invoke('llm-chat', messages, effort),
 
   synthesize: (text) => ipcRenderer.invoke('tts-synthesize', text),
 

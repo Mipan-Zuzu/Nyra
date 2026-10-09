@@ -7,6 +7,7 @@
     "start": "electron ."
   },
   "dependencies": {
+    "@google/genai": "^2.28.0",
     "@pixiv/three-vrm": "^3.1.0",
     "dotenv": "^16.4.5",
     "electron": "^31.0.0",

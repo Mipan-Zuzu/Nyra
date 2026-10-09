@@ -53,8 +53,18 @@
     <!-- Chat history (scrollable) -->
     <div id="chat-history"></div>
 
-    <!-- Input row: text field + mic button + send button -->
+    <!-- Input row: thinking-effort picker + text field + mic button + send button -->
     <div id="input-row">
+      <div id="thinking-picker">
+        <button id="btn-thinking" title="Tingkat berpikir AI">
+          <span id="thinking-label">Low</span>
+        </button>
+        <div id="thinking-menu" class="hidden">
+          <button class="thinking-option" data-effort="low">Low</button>
+          <button class="thinking-option" data-effort="medium">Medium</button>
+          <button class="thinking-option" data-effort="high">High</button>
+        </div>
+      </div>
       <button id="btn-mic" title="Rekam suara">
         <svg
           xmlns="http://www.w3.org/2000/svg"
