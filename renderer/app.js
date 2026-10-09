@@ -98,6 +98,7 @@ loader.load(
     }
 
     detectLookExpressions(vrm);
+    detectEars(vrm);
 
     console.log(
       `[VRM] Model loaded (lookAt=${hasLookAt}, lookExpressions=${hasLookExpressions}):`,
@@ -133,6 +134,128 @@ function doBlink() {
   exp.setValue('blink', 1);
   setTimeout(() => exp.setValue('blink', 0.4), 90);
   setTimeout(() => exp.setValue('blink', 0), 160);
+}
+
+// ─── Cat ear twitch: telinga kucing bergerak setiap beberapa detik ──────────
+
+let earNodes = [];
+let earExpressionName = null;
+
+function detectEars(vrmObj) {
+  earNodes = [];
+  earExpressionName = null;
+
+  if (!vrmObj) return;
+
+  // 1) Jika model punya expression telinga (VRM custom), pakai itu.
+  const exp = vrmObj.expressionManager;
+
+  if (exp && typeof exp.getExpression === 'function') {
+    try {
+      const names = (exp.expressions || [])
+        .map((e) => e.expressionName)
+        .filter(Boolean);
+
+      const earExpName = names.find((name) => /ear/i.test(name));
+
+      if (earExpName && exp.getExpression(earExpName) != null) {
+        earExpressionName = earExpName;
+      }
+    } catch {
+      earExpressionName = null;
+    }
+  }
+
+  // 2) Jika tidak ada expression, cari bone/mesh telinga berdasarkan nama.
+  if (!earExpressionName) {
+    vrmObj.scene.traverse((obj) => {
+      if (obj.name && /ear/i.test(obj.name)) {
+        earNodes.push(obj);
+      }
+    });
+  }
+
+  console.log(
+    `[Ears] Twitch mode: ${earExpressionName ? `expression "${earExpressionName}"` : earNodes.length ? `${earNodes.length} node(s): ${earNodes.map((n) => n.name).join(', ')}` : 'none found'}`,
+  );
+}
+
+// ── Ear twitch berbasis frame: selalu berjalan di semua state ──
+
+let earTwitch = null;           // twitch yang sedang berjalan
+let nextEarTwitchAt = 2.0;      // detik ke-berapa twitch berikutnya (elapsed)
+
+const EAR_TWITCH_MIN_DELAY = 3.5;   // jeda minimal antar twitch (detik)
+const EAR_TWITCH_MAX_DELAY = 8.0;   // jeda maksimal antar twitch (detik)
+const EAR_TWITCH_DURATION = 0.52;   // durasi satu twitch (detik)
+
+function startEarTwitch(elapsed) {
+  // Mode expression: pulse telinga via blendshape.
+  if (earExpressionName && vrm?.expressionManager) {
+    earTwitch = { mode: 'expression', start: elapsed };
+    return;
+  }
+
+  // Mode node: pilih SATU telinga acak (kucing menggerakkan satu telinga).
+  if (!earNodes.length) return;
+
+  const node =
+    earNodes.length > 1
+      ? earNodes[Math.floor(Math.random() * earNodes.length)]
+      : earNodes[0];
+
+  earTwitch = {
+    mode: 'node',
+    start: elapsed,
+    node,
+    baseRot: node.rotation.clone(),
+  };
+}
+
+function updateEarTwitch(elapsed) {
+  // Belum waktunya twitch berikutnya.
+  if (!earTwitch && elapsed < nextEarTwitchAt) return;
+
+  // Mulai twitch baru.
+  if (!earTwitch) {
+    startEarTwitch(elapsed);
+    if (!earTwitch) return;
+  }
+
+  const t = (elapsed - earTwitch.start) / EAR_TWITCH_DURATION;
+
+  // Twitch selesai → pulihkan & jadwalkan berikutnya.
+  if (t >= 1) {
+    if (earTwitch.mode === 'expression') {
+      vrm?.expressionManager?.setValue(earExpressionName, 0);
+    } else if (earTwitch.node) {
+      earTwitch.node.rotation.copy(earTwitch.baseRot);
+    }
+
+    earTwitch = null;
+    nextEarTwitchAt =
+      elapsed + EAR_TWITCH_MIN_DELAY +
+      Math.random() * (EAR_TWITCH_MAX_DELAY - EAR_TWITCH_MIN_DELAY);
+
+    return;
+  }
+
+  // Envelope sin² → mulai & berakhir mulus di 0.
+  const envelope = Math.sin(t * Math.PI) ** 2;
+  // Dua getaran cepat seperti telinga kucing yang berkedip.
+  const wiggle = Math.sin(t * Math.PI * 5);
+
+  if (earTwitch.mode === 'expression') {
+    vrm?.expressionManager?.setValue(
+      earExpressionName,
+      wiggle * envelope,
+    );
+  } else if (earTwitch.node) {
+    earTwitch.node.rotation.x =
+      earTwitch.baseRot.x + wiggle * 0.14 * envelope;
+    earTwitch.node.rotation.z =
+      earTwitch.baseRot.z + wiggle * 0.1 * envelope;
+  }
 }
 
 scheduleBlink();
@@ -175,13 +298,6 @@ const GESTURE_POSES = {
     rightLowerArm: { x: 0.35, y: -0.6, z: 1.35 },
   },
 
-  explaining: {
-    leftArm: { x: 0.45, y: 0.2, z: -0.6 },
-    rightArm: { x: 0.5, y: -0.22, z: 0.65 },
-    leftLowerArm: { x: 0.05, y: 0.15, z: -0.45 },
-    rightLowerArm: { x: 0, y: -0.18, z: 0.5 },
-  },
-
   idleS: [
     {
       leftArm: { x: 0.18, y: 0.06, z: -1.02 },
@@ -209,16 +325,6 @@ const GESTURE_POSES = {
     },
   ],
 };
-
-const speakingGestures = [
-  'handsOnHip',
-  'idle',
-  'natural',
-  'idle',
-  'natural',
-  'idle',
-  'natural',
-];
 
 const ENABLE_SPEAKING_GESTURES = true;
 
@@ -251,29 +357,49 @@ function setGesture(gestureName) {
   gestureBlend = 0;
 }
 
-function chooseSpeakingGesture() {
-  const available = speakingGestures.filter(
-    (gesture) => gesture !== currentGesture,
-  );
+// ─── Contextual gestures: driven by speech content, not randomness ──────────
+//
+// Gesture selection reads the actual sentence Nyra is about to say:
+//   agreement   → nod (mengangguk)
+//   disagreement→ head shake (menggeleng)
+//   else        → subtle posture shifts only (natural/idle)
 
-  setGesture(
-    available[Math.floor(Math.random() * available.length)],
-  );
+function planContextualGestures(text) {
+  if (!text) return;
+
+  // Tidak ada konteks khusus → postur halus, bukan gerakan acak.
+  setGesture('natural');
 }
 
-function startSpeakingGestures() {
+function scheduleSubtleShift() {
+  if (gestureInterval) {
+    clearInterval(gestureInterval);
+  }
+
+  gestureInterval = setInterval(() => {
+    if (appState !== 'speaking') return;
+
+    // Hanya ganti antara postur natural dan idle saat masih bicara panjang.
+    const next = currentGesture === 'natural' ? 'idle' : 'natural';
+
+    setGesture(next);
+  }, 4500);
+}
+
+function startSpeakingGestures(text = null) {
   if (!ENABLE_SPEAKING_GESTURES) return;
 
   stopIdleVariation();
 
-  if (gestureInterval) return;
+  if (gestureInterval) {
+    clearInterval(gestureInterval);
+    gestureInterval = null;
+  }
 
-  chooseSpeakingGesture();
+  // Pilih gesture dari isi pembicaraan, bukan acak.
+  planContextualGestures(text);
 
-  gestureInterval = setInterval(
-    chooseSpeakingGesture,
-    2200 + Math.random() * 800,
-  );
+  scheduleSubtleShift();
 }
 
 function stopSpeakingGestures() {
@@ -309,15 +435,6 @@ function applyGesturePose(poseName, lerpFactor = 0.08) {
     leftLowerArm: { ...pose.leftLowerArm },
     rightLowerArm: { ...pose.rightLowerArm },
   };
-
-  if (poseName === 'explaining') {
-    const rhythm = lipsyncVolume * 0.12;
-
-    target.leftArm.x += rhythm;
-    target.rightArm.x += rhythm;
-    target.leftLowerArm.z += rhythm * 0.5;
-    target.rightLowerArm.z -= rhythm * 0.5;
-  }
 
   const blendRotation = (bone, rotation) => {
     if (!bone) return;
@@ -391,13 +508,30 @@ function updateHeadAction() {
 const NOD_WORDS =
   /(うん|はい|そうだよ|そうそう|いいよ|もちろん|もちろん!|当然|わかった|了解|賛成|トップ|バッチリ|その通り|本当に|ほんとに|すごい|えらい|大丈夫|だいじょうぶ)/;
 
+const NOD_WORDS_ID_EN =
+  /(^|[\s,.!?'"])(iya|iya+|yoi|yap|yups|betul|benar|setuju|boleh|silakan|mantap|bagus|keren|ok|oke|okeh|okey|sip|siap|baik|tentu|pasti|jelas|banget|yes|yeah|sure|of\s+course|right|exactly|correct|great|nice|awesome|agreed)(?=$|[\s,.!?'"])/i;
+
 const SHAKE_WORDS =
   /(ううん|うううん|いや|だめ|ダメ|違う|ちがう|無理|むり|できない|ちょっと違う|断る|拒否|やだ|嫌だ)/;
 
+const SHAKE_WORDS_ID_EN =
+  /(^|[\s,.!?'"])(nggak|ngga|gak|ga|nggak\s+boleh|tidak|tak\s+bisa|gak\s+bisa|gak\s+mau|jangan|gak\s+usah|tidak\s+setuju|belum|salah|keliru|no|nope|never|wrong|can't|cannot|don't)(?=$|[\s,.!?'"])/i;
+
 function detectHeadAction(text) {
   if (!text) return null;
-  if (SHAKE_WORDS.test(text)) return 'shake';
-  if (NOD_WORDS.test(text)) return 'nod';
+  if (
+    SHAKE_WORDS.test(text) ||
+    SHAKE_WORDS_ID_EN.test(text)
+  ) {
+    return 'shake';
+  }
+
+  if (
+    NOD_WORDS.test(text) ||
+    NOD_WORDS_ID_EN.test(text)
+  ) {
+    return 'nod';
+  }
 
   return null;
 }
@@ -1041,7 +1175,8 @@ function applySpeechExpression(text, emotion) {
   }
 
   if (appState === 'speaking') {
-    startSpeakingGestures();
+    // Gesture dipilih berdasarkan isi kalimat yang sedang diucapkan.
+    startSpeakingGestures(text);
   }
 }
 
@@ -1488,6 +1623,10 @@ function animate() {
       startIdleVariation();
       restPoseApplied = true;
     }
+
+    // Kedipan telinga kucing — selalu aktif di semua state
+    // (idle, listening, thinking, maupun speaking).
+    updateEarTwitch(elapsed);
 
     // Breathing
     const breathe = Math.sin(elapsed * 1.6) * 0.012;

@@ -65,7 +65,7 @@ function createWindow() {
   );
 
   // Uncomment to open DevTools during development
-  // win.webContents.openDevTools({ mode: "detach" });
+  win.webContents.openDevTools({ mode: "detach" });
 }
 
 app.whenReady().then(createWindow);
